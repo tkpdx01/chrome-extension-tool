@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Show Content Button",
+  "version": "1.0.0",
+  "description": "在指定帖子段落后添加一个大按钮，点击后显示该元素的内容",
+  "content_scripts": [
+    {
+      "matches": ["https://linux.do/*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

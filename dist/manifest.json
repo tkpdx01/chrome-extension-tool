@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "Offline Capture Assistant",
+  "version": "0.1.0",
+  "description": "Capture DOM, requirement points, and network fields from intranet pages for offline Chrome extension development.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "downloads",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "src/assets/icon-16.png",
+    "48": "src/assets/icon-48.png",
+    "128": "src/assets/icon-128.png"
+  },
+  "action": {
+    "default_title": "Open Offline Capture Assistant",
+    "default_icon": {
+      "16": "src/assets/icon-16.png",
+      "48": "src/assets/icon-48.png",
+      "128": "src/assets/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/index.ts-loader-JwO20TM0.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "js": [
+        "assets/networkHook.ts-loader-C8mItiL3.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/utils-C6cMZisy.js",
+        "assets/messages-NWlbb5e5.js",
+        "assets/index.ts-DNbnxCF8.js",
+        "assets/networkHook.ts-ldTaDOQu.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

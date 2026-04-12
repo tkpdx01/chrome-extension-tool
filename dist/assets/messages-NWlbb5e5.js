@@ -1,0 +1,1 @@
+function e(e,t,n,r){return{source:e,target:t,type:n,payload:r}}export{e as t};
