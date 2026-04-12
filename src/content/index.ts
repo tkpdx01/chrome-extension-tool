@@ -90,25 +90,22 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
           message.payload.currentPosition,
           async (position: InsertPosition) => {
             try {
+              // pageId/requirementId resolved by background from activeContextByTab
               await chrome.runtime.sendMessage(
                 createMessage('content', 'background', 'INSERT_POSITION_SELECTED', {
-                  pageId: '',
-                  requirementId: '',
+                  pageId: '_from_context',
+                  requirementId: '_from_context',
                   position,
                 }),
               );
-            } catch {
-              // Background may not be ready.
-            }
+            } catch { /* Background may not be ready */ }
           },
           async () => {
             try {
               await chrome.runtime.sendMessage(
                 createMessage('content', 'background', 'CANCEL_ANCHOR', {}),
               );
-            } catch {
-              // Background may not be ready.
-            }
+            } catch { /* Background may not be ready */ }
           },
         );
         sendResponse({ ok: true, data: { success: true } });

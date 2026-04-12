@@ -180,6 +180,14 @@ export default function App() {
     await refresh();
   }
 
+  async function promoteToAnchor(elementId: string): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_PROMOTE_ANCHOR', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id, elementId,
+    }));
+    await refresh();
+  }
+
   async function attachFields(fields: FieldSelection[]): Promise<void> {
     setSelectedFields(fields);
     if (!snapshot || !activeReq || !activeNetId) return;
@@ -287,6 +295,7 @@ export default function App() {
           onRemoveElement={(id) => void run(() => removeElement(id))}
           onRemoveDataDependency={(id) => void run(() => removeDataDep(id))}
           onRemoveField={(nrId, fp) => void run(() => removeField(nrId, fp))}
+          onPromoteToAnchor={(id) => void run(() => promoteToAnchor(id))}
         />
       </div>
     </main>

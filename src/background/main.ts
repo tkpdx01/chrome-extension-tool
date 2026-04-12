@@ -16,6 +16,7 @@ import {
   createRequirement,
   deleteRequirement,
   ensurePageCapture,
+  promoteToAnchor,
   getAppSnapshotForTab,
   getState,
   removeDataDependency,
@@ -167,14 +168,8 @@ async function bootstrapForTab(tabId: number): Promise<SnapshotResponse> {
 function setupContextMenus(): void {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: 'capture-anchor',
-      title: 'Capture: 设为锚点元素',
-      contexts: ['all'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*'],
-    });
-    chrome.contextMenus.create({
-      id: 'capture-related',
-      title: 'Capture: 添加为相关元素',
+      id: 'capture-element',
+      title: '采集此元素',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -182,13 +177,9 @@ function setupContextMenus(): void {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (!tab?.id) return;
+  if (!tab?.id || info.menuItemId !== 'capture-element') return;
 
   const tabId = tab.id;
-  const menuId = info.menuItemId;
-  if (menuId !== 'capture-anchor' && menuId !== 'capture-related') return;
-
-  const mode: 'anchor' | 'related' = menuId === 'capture-anchor' ? 'anchor' : 'related';
 
   void (async () => {
     try {
@@ -213,6 +204,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         activeContextByTab[tabId] = ctx;
         await sendStateChanged();
       }
+
+      // Auto-determine mode: if no anchor yet → anchor, otherwise → related
+      const state = await getState();
+      const project = state.projects.find((p) => p.id === state.activeProjectId);
+      const page = project?.pages.find((p) => p.id === ctx.pageId);
+      const req = page?.requirements.find((r) => r.id === ctx.requirementId);
+      const mode: 'anchor' | 'related' = req?.anchorElementId ? 'related' : 'anchor';
 
       await ensureContentScriptReady(tabId, tab.url);
       await chrome.tabs.sendMessage(
@@ -269,6 +267,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   })();
 });
 
+// Clean up context when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  delete activeContextByTab[tabId];
+});
+
 // ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
@@ -312,6 +315,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         case 'REQUIREMENT_REMOVE_ELEMENT': {
           const req = await removeRequirementElement(message.payload.pageId, message.payload.requirementId, message.payload.elementId);
           await sendStateChanged(message.payload.tabId);
+          sendResponse({ ok: true, data: req });
+          return;
+        }
+
+        case 'REQUIREMENT_PROMOTE_ANCHOR': {
+          const req = await promoteToAnchor(message.payload.pageId, message.payload.requirementId, message.payload.elementId);
+          await sendStateChanged(message.payload.tabId);
+          // Show insert indicators for the new anchor
+          if (message.payload.tabId) {
+            void showInsertIndicatorsForAnchor(message.payload.tabId, message.payload.pageId, message.payload.requirementId);
+          }
           sendResponse({ ok: true, data: req });
           return;
         }

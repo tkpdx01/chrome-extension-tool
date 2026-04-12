@@ -37,6 +37,26 @@ async function capturePageHtml(tabId: number): Promise<string | undefined> {
   }
 }
 
+function buildExportFilename(project: { pages: Array<{ url: string }> }): string {
+  const page = project.pages[0];
+  if (!page?.url) {
+    return 'capture-export.zip';
+  }
+
+  try {
+    const url = new URL(page.url);
+    const domain = url.hostname.replace(/^www\./, '');
+    const path = url.pathname
+      .replace(/^\/|\/$/g, '')
+      .replace(/\//g, '_')
+      .slice(0, 60);
+    const slug = sanitizeFilename(path ? `${domain}_${path}` : domain);
+    return `${slug}.zip`;
+  } catch {
+    return 'capture-export.zip';
+  }
+}
+
 export async function exportProjectBundle(projectId: string, tabId?: number): Promise<void> {
   const project = await getProject(projectId);
   const screenshots = await captureCurrentPageScreenshot();
@@ -51,7 +71,7 @@ export async function exportProjectBundle(projectId: string, tabId?: number): Pr
 
   await chrome.downloads.download({
     url: dataUrl,
-    filename: `${sanitizeFilename(project.name)}.zip`,
+    filename: buildExportFilename(project),
     saveAs: true,
   });
 }

@@ -69,6 +69,11 @@ export type RequirementRemoveFieldMessage = MessageEnvelope<
   { tabId: number; pageId: string; requirementId: string; networkRecordId: string; fieldPath: string }
 >;
 
+export type RequirementPromoteAnchorMessage = MessageEnvelope<
+  'REQUIREMENT_PROMOTE_ANCHOR',
+  { tabId: number; pageId: string; requirementId: string; elementId: string }
+>;
+
 // Content script ping
 export type ContentPingMessage = MessageEnvelope<'CONTENT_PING', Record<string, never>>;
 
@@ -121,6 +126,7 @@ export type RuntimeMessage =
   | RequirementAttachFieldsMessage
   | RequirementRemoveDataDependencyMessage
   | RequirementRemoveFieldMessage
+  | RequirementPromoteAnchorMessage
   | ContentPingMessage
   | ContextMenuPickMessage
   | ElementPickedMessage

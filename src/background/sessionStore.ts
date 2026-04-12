@@ -240,6 +240,32 @@ export async function attachPickedElement(
   return requirement;
 }
 
+export async function promoteToAnchor(
+  pageId: string,
+  requirementId: string,
+  elementId: string,
+): Promise<RequirementPoint> {
+  const state = await getState();
+  const project = findProject(state);
+  const page = findPage(project, pageId);
+  const requirement = findRequirement(page, requirementId);
+
+  // Move current anchor to related (if exists and different)
+  if (requirement.anchorElementId && requirement.anchorElementId !== elementId) {
+    if (!requirement.relatedElementIds.includes(requirement.anchorElementId)) {
+      requirement.relatedElementIds.push(requirement.anchorElementId);
+    }
+  }
+
+  // Set new anchor, remove from related
+  requirement.anchorElementId = elementId;
+  requirement.relatedElementIds = requirement.relatedElementIds.filter((id) => id !== elementId);
+
+  project.updatedAt = nowIso();
+  await setState(state);
+  return requirement;
+}
+
 export async function appendNetworkRecord(pageId: string, record: NetworkRecord): Promise<void> {
   const state = await getState();
   const project = findProject(state);
@@ -420,6 +446,11 @@ function formatElementMarkdownLines(label: string, element?: ElementSnapshot): s
       ? [`  - 备用 selector: ${fallbackSelectors.map((selector) => `\`${selector}\``).join(' / ')}`]
       : []),
     ...(element.selectorCandidates.xpath ? [`  - XPath: \`${element.selectorCandidates.xpath}\``] : []),
+    ...(element.htmlSnippet ? [`  - HTML: \`${element.htmlSnippet.slice(0, 300)}\``] : []),
+    ...(element.computedStyle && Object.keys(element.computedStyle).length > 0
+      ? [`  - 样式: ${Object.entries(element.computedStyle).map(([k, v]) => `${k}: ${v}`).join('; ')}`]
+      : []),
+    ...(element.context.parentTag ? [`  - 父元素: ${element.context.parentTag}`] : []),
     ...(element.context.parentText ? [`  - 父级文本: ${element.context.parentText}`] : []),
     ...(element.context.prevSiblingText ? [`  - 前相邻文本: ${element.context.prevSiblingText}`] : []),
     ...(element.context.nextSiblingText ? [`  - 后相邻文本: ${element.context.nextSiblingText}`] : []),
@@ -462,8 +493,20 @@ export async function buildExportZip(
   );
 
   // AI context markdown — includes everything
+  const totalRequirements = project.pages.reduce((n, p) => n + p.requirements.length, 0);
+  const totalElements = project.pages.reduce((n, p) => n + p.elements.length, 0);
+  const totalNetworkRecords = project.pages.reduce((n, p) => n + p.networkRecords.length, 0);
+
   const markdown: string[] = [
     `# ${project.name}`,
+    '',
+    '## 概览',
+    `- 页面数: ${project.pages.length}`,
+    `- 需求点数: ${totalRequirements}`,
+    `- 采集元素数: ${totalElements}`,
+    `- 网络请求数: ${totalNetworkRecords}`,
+    `- 导出时间: ${nowIso()}`,
+    ...(pageHtml ? [`- 页面源码: page-source.html (${Math.round(pageHtml.length / 1024)}KB)`] : []),
     '',
   ];
 
@@ -534,13 +577,9 @@ export async function buildExportZip(
   });
 
   // Network requests as separate JSON for AI tools that prefer structured data
-  for (const page of project.pages) {
-    if (page.networkRecords.length > 0) {
-      zip.file(
-        'network-records.json',
-        JSON.stringify(page.networkRecords, null, 2),
-      );
-    }
+  const allNetworkRecords = project.pages.flatMap((page) => page.networkRecords);
+  if (allNetworkRecords.length > 0) {
+    zip.file('network-records.json', JSON.stringify(allNetworkRecords, null, 2));
   }
 
   return zip.generateAsync({ type: 'blob' });

@@ -35,6 +35,7 @@ export type ElementSnapshot = {
   text: string;
   htmlSnippet?: string;
   attributes: Record<string, string>;
+  computedStyle?: Record<string, string>;
   selectorCandidates: SelectorCandidates;
   rect: ElementRect;
   context: ElementContext;

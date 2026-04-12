@@ -22,6 +22,7 @@ type RequirementPanelProps = {
   onRemoveElement: (elementId: string) => void;
   onRemoveDataDependency: (networkRecordId: string) => void;
   onRemoveField: (networkRecordId: string, fieldPath: string) => void;
+  onPromoteToAnchor: (elementId: string) => void;
 };
 
 function SectionHeader({ title, count }: { title: string; count?: number }) {
@@ -50,6 +51,7 @@ export default function RequirementPanel({
   onRemoveElement,
   onRemoveDataDependency,
   onRemoveField,
+  onPromoteToAnchor,
 }: RequirementPanelProps) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -129,7 +131,7 @@ export default function RequirementPanel({
         ) : null}
 
         {related.map((el) => (
-          <ElementCard key={el.id} element={el} onRemove={() => onRemoveElement(el.id)} />
+          <ElementCard key={el.id} element={el} onRemove={() => onRemoveElement(el.id)} onPromoteToAnchor={() => onPromoteToAnchor(el.id)} />
         ))}
       </div>
 

@@ -7,6 +7,7 @@ type ElementCardProps = {
   isAnchor?: boolean;
   insertPosition?: InsertPosition;
   onRemove: () => void;
+  onPromoteToAnchor?: () => void;
 };
 
 function getSelector(el: ElementSnapshot): string | undefined {
@@ -27,7 +28,7 @@ function handleMouseLeave(): void {
   ).catch(() => undefined);
 }
 
-export default function ElementCard({ element, isAnchor, insertPosition, onRemove }: ElementCardProps) {
+export default function ElementCard({ element, isAnchor, insertPosition, onRemove, onPromoteToAnchor }: ElementCardProps) {
   const selector = getSelector(element);
   const textPreview = element.text?.slice(0, 30) || '';
 
@@ -89,27 +90,24 @@ export default function ElementCard({ element, isAnchor, insertPosition, onRemov
           </div>
         ) : null}
       </div>
-      <button
-        onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        style={{
-          flexShrink: 0,
-          width: 20,
-          height: 20,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 14,
-          color: '#9ca3af',
-          background: 'none',
-          border: 'none',
-          borderRadius: 4,
-          cursor: 'pointer',
-          lineHeight: 1,
-        }}
-        title="移除"
-      >
-        x
-      </button>
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        {!isAnchor && onPromoteToAnchor ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPromoteToAnchor(); }}
+            style={{ fontSize: 10, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
+            title="设为锚点"
+          >
+            设为锚点
+          </button>
+        ) : null}
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          style={{ fontSize: 14, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', lineHeight: 1 }}
+          title="移除"
+        >
+          x
+        </button>
+      </div>
     </div>
   );
 }
