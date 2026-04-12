@@ -25,9 +25,14 @@ export function listenForInjectedNetworkEvents(onRecord: (record: NetworkRecord)
 }
 
 export async function emitObservedNetworkRecord(record: NetworkRecord): Promise<void> {
-  await chrome.runtime.sendMessage(
-    createMessage('content', 'background', 'NETWORK_OBSERVED', {
-      record,
-    }),
-  );
+  try {
+    await chrome.runtime.sendMessage(
+      createMessage('content', 'background', 'NETWORK_OBSERVED', {
+        record,
+      }),
+    );
+  } catch {
+    // Background service worker may not be active yet. The record is lost
+    // but this prevents the network listener from crashing entirely.
+  }
 }

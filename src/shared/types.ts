@@ -1,7 +1,13 @@
 export type Id = string;
 
 export type InsertPosition = 'before' | 'after' | 'inside-start' | 'inside-end';
-export type PickerMode = 'idle' | 'anchor' | 'related';
+
+export const INSERT_POSITION_LABELS: Record<InsertPosition, string> = {
+  'before': '前面',
+  'after': '后面',
+  'inside-start': '内部开头',
+  'inside-end': '内部末尾',
+};
 
 export type SelectorCandidates = {
   primaryCss?: string;
@@ -93,15 +99,8 @@ export type Project = {
   pages: PageCapture[];
 };
 
-export type ActivePickingState = {
-  pageId: Id;
-  requirementId: Id;
-  mode: Exclude<PickerMode, 'idle'>;
-};
-
 export type RuntimeSession = {
   activePageIdByTab: Record<number, Id | undefined>;
-  activePickingByTab: Record<number, ActivePickingState | undefined>;
 };
 
 export type StoredState = {

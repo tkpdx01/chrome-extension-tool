@@ -2,6 +2,16 @@ import { BRIDGE_SOURCE } from '@/shared/constants';
 import { createId, parseRawHeaders, safeJsonParse, summarizeJson, toPlainHeaders, truncateText } from '@/shared/utils';
 import type { NetworkRecord } from '@/shared/types';
 
+/** Only record HTTP(S) requests — skip chrome-extension://, edge://, etc. */
+function shouldRecord(url: string): boolean {
+  try {
+    const { protocol } = new URL(url, location.href);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function emitRecord(record: NetworkRecord): void {
   window.postMessage(
     {
@@ -48,9 +58,14 @@ async function buildRecordFromFetch(
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const response = await originalFetch(input, init);
-  buildRecordFromFetch(input, init, response)
-    .then(emitRecord)
-    .catch(() => undefined);
+
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  if (shouldRecord(url)) {
+    buildRecordFromFetch(input, init, response)
+      .then(emitRecord)
+      .catch(() => undefined);
+  }
+
   return response;
 };
 
@@ -75,29 +90,39 @@ XMLHttpRequest.prototype.open = function open(
 };
 
 XMLHttpRequest.prototype.send = function send(body?: Document | XMLHttpRequestBodyInit | null): void {
-  const requestBodyPreview = typeof body === 'string' ? truncateText(body) : undefined;
-  this.addEventListener('loadend', () => {
-    const contentType = this.getResponseHeader('content-type') ?? undefined;
-    const responseText =
-      typeof this.responseText === 'string' && (contentType?.includes('application/json') || contentType?.includes('text/'))
-        ? this.responseText
-        : '';
-    const parsedJson = contentType?.includes('application/json') ? safeJsonParse(responseText) : undefined;
+  const url = String(Reflect.get(this, '__offlineCaptureUrl') ?? '');
 
-    emitRecord({
-      id: createId('net'),
-      url: String(Reflect.get(this, '__offlineCaptureUrl') ?? ''),
-      method: String(Reflect.get(this, '__offlineCaptureMethod') ?? 'GET'),
-      status: this.status,
-      contentType,
-      requestHeaders: undefined,
-      requestBodyPreview,
-      responseHeaders: parseRawHeaders(this.getAllResponseHeaders()),
-      responsePreview: truncateText(responseText),
-      responseJsonSample: parsedJson ? summarizeJson(parsedJson) : undefined,
-      timestamp: Date.now(),
+  if (shouldRecord(url)) {
+    const requestBodyPreview = typeof body === 'string' ? truncateText(body) : undefined;
+    this.addEventListener('loadend', () => {
+      try {
+        const contentType = this.getResponseHeader('content-type') ?? undefined;
+        // responseText is only accessible when responseType is '' or 'text'
+        const canReadText = this.responseType === '' || this.responseType === 'text';
+        const responseText =
+          canReadText && (contentType?.includes('application/json') || contentType?.includes('text/'))
+            ? this.responseText
+            : '';
+        const parsedJson = contentType?.includes('application/json') ? safeJsonParse(responseText) : undefined;
+
+        emitRecord({
+          id: createId('net'),
+          url,
+          method: String(Reflect.get(this, '__offlineCaptureMethod') ?? 'GET'),
+          status: this.status,
+          contentType,
+          requestHeaders: undefined,
+          requestBodyPreview,
+          responseHeaders: parseRawHeaders(this.getAllResponseHeaders()),
+          responsePreview: truncateText(responseText),
+          responseJsonSample: parsedJson ? summarizeJson(parsedJson) : undefined,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // Silently skip if response cannot be read.
+      }
     });
-  });
+  }
 
   return originalSend.call(this, body ?? null);
 };

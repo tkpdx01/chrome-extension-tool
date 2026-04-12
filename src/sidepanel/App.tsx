@@ -1,359 +1,293 @@
-import { useEffect, useMemo, useState } from 'react';
-import RequirementList from './components/RequirementList';
-import RequirementDetail from './components/RequirementDetail';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import RequirementTabs from './components/RequirementTabs';
+import RequirementPanel from './components/RequirementPanel';
 import { createMessage, type SnapshotResponse } from '@/shared/messages';
-import type {
-  AppSnapshot,
-  FieldSelection,
-  InsertPosition,
-  PickerMode,
-  RequirementPoint,
-} from '@/shared/types';
+import type { AppSnapshot, FieldSelection, RequirementPoint } from '@/shared/types';
 
-async function getActiveTabId(): Promise<number> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    throw new Error('No active tab available.');
-  }
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  return tab.id;
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
+async function sendBg<T>(message: unknown, timeoutMs = 5000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('后台响应超时')), timeoutMs);
+    chrome.runtime.sendMessage(message).then(
+      (r) => { clearTimeout(timer); r ? resolve(r as T) : reject(new Error('未收到后台响应')); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
 }
 
 async function requestSnapshot(): Promise<AppSnapshot> {
-  const tabId = await getActiveTabId();
-
-  const response = (await chrome.runtime.sendMessage(
-    createMessage('sidepanel', 'background', 'APP_BOOTSTRAP', { tabId }),
-  )) as SnapshotResponse;
-
-  if (!response.ok) {
-    throw new Error(response.error);
-  }
-
-  return response.data;
+  const r = await sendBg<SnapshotResponse>(createMessage('sidepanel', 'background', 'APP_BOOTSTRAP', {}));
+  if (!r.ok) throw new Error(r.error ?? '后台错误');
+  return r.data;
 }
+
+const RETRY_DELAYS = [500, 1500, 3000];
+
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot | undefined>();
-  const [activeRequirementId, setActiveRequirementId] = useState<string | undefined>();
-  const [activeNetworkRecordId, setActiveNetworkRecordId] = useState<string | undefined>();
+  const [activeReqId, setActiveReqId] = useState<string | undefined>();
+  const [activeNetId, setActiveNetId] = useState<string | undefined>();
   const [selectedFields, setSelectedFields] = useState<FieldSelection[]>([]);
-  const [pickerMode, setPickerMode] = useState<PickerMode>('idle');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
+  const retryRef = useRef(0);
 
-  useEffect(() => {
-    void loadSnapshot();
+  // -- Bootstrap -----------------------------------------------------------
+
+  const bootstrap = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    retryRef.current = 0;
+
+    for (let i = 0; i <= RETRY_DELAYS.length; i++) {
+      try {
+        const s = await requestSnapshot();
+        setSnapshot(s);
+        setError(undefined);
+        setLoading(false);
+        return;
+      } catch (e) {
+        if (i < RETRY_DELAYS.length) {
+          retryRef.current = i + 1;
+          setError(`加载失败，正在第 ${i + 1} 次重试...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS[i]));
+        } else {
+          setError(toErrorMessage(e));
+          setLoading(false);
+        }
+      }
+    }
   }, []);
 
-  useEffect(() => {
-    const listener = (message: { type?: string }) => {
-      if (message.type === 'STATE_CHANGED') {
-        void loadSnapshot();
-      }
-    };
+  useEffect(() => { void bootstrap(); }, [bootstrap]);
 
+  useEffect(() => {
+    const listener = (msg: { type?: string }) => {
+      if (msg.type === 'STATE_CHANGED') void refresh();
+    };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
   }, []);
 
+  // -- Derived state -------------------------------------------------------
+
   const requirements = snapshot?.page.requirements ?? [];
-  const activeRequirement = useMemo(
-    () => requirements.find((requirement) => requirement.id === activeRequirementId) ?? requirements[0],
-    [activeRequirementId, requirements],
+  const activeReq = useMemo(
+    () => requirements.find((r) => r.id === activeReqId) ?? requirements[0],
+    [activeReqId, requirements],
   );
 
   useEffect(() => {
-    if (activeRequirement && activeRequirement.id !== activeRequirementId) {
-      setActiveRequirementId(activeRequirement.id);
-    }
-  }, [activeRequirement, activeRequirementId]);
+    if (activeReq && activeReq.id !== activeReqId) setActiveReqId(activeReq.id);
+  }, [activeReq, activeReqId]);
 
+  // Report active context to background
   useEffect(() => {
-    if (!snapshot?.page.tabId) {
-      setPickerMode('idle');
-      return;
-    }
+    if (!snapshot?.page.tabId || !snapshot?.page.id || !activeReq?.id) return;
+    void chrome.runtime.sendMessage(
+      createMessage('sidepanel', 'background', 'SIDEPANEL_CONTEXT_UPDATE', {
+        tabId: snapshot.page.tabId,
+        pageId: snapshot.page.id,
+        requirementId: activeReq.id,
+      }),
+    ).catch(() => undefined);
+  }, [snapshot?.page.tabId, snapshot?.page.id, activeReq?.id]);
 
-    const activePicking = snapshot.runtime.activePickingByTab[snapshot.page.tabId];
-    setPickerMode(activePicking?.mode ?? 'idle');
-  }, [snapshot]);
+  // Sync selected fields
+  useEffect(() => {
+    if (!activeReq || !snapshot) { setSelectedFields([]); return; }
+    const dep = activeReq.dataDependencies.find((d) => d.networkRecordId === activeNetId);
+    setSelectedFields(dep?.selectedFields ?? []);
+  }, [activeNetId, activeReq, snapshot]);
 
-  async function loadSnapshot(): Promise<void> {
+  // -- Messaging -----------------------------------------------------------
+
+  function tabId(): number {
+    const id = snapshot?.page.tabId;
+    if (!id) throw new Error('页面上下文尚未加载');
+    return id;
+  }
+
+  async function send<T>(msg: unknown): Promise<T> {
+    const r = await sendBg<{ ok: boolean; error?: string; data: T }>(msg);
+    if (!r.ok) throw new Error(r.error ?? 'Unknown error');
+    return r.data;
+  }
+
+  async function refresh(): Promise<void> {
     try {
-      const nextSnapshot = await requestSnapshot();
-      setSnapshot(nextSnapshot);
+      setSnapshot(await requestSnapshot());
       setError(undefined);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load snapshot.');
+    } catch (e) {
+      setError(toErrorMessage(e));
     }
   }
 
-  async function sendMessage<T>(message: unknown): Promise<T> {
-    const response = (await chrome.runtime.sendMessage(message)) as {
-      ok: boolean;
-      error?: string;
-      data: T;
-    };
-
-    if (!response.ok) {
-      throw new Error(response.error ?? 'Unknown error');
-    }
-
-    return response.data;
+  async function run(fn: () => Promise<void>): Promise<void> {
+    try { await fn(); setError(undefined); } catch (e) { setError(toErrorMessage(e)); }
   }
 
-  async function createRequirement(): Promise<void> {
-    if (!snapshot) {
-      return;
-    }
+  // -- Actions -------------------------------------------------------------
 
-    const tabId = await getActiveTabId();
-    const created = await sendMessage<RequirementPoint>(
+  async function createReq(): Promise<void> {
+    if (!snapshot) return;
+    const r = await send<RequirementPoint>(
       createMessage('sidepanel', 'background', 'REQUIREMENT_CREATE', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        name: `需求点 ${snapshot.page.requirements.length + 1}`,
+        tabId: tabId(), pageId: snapshot.page.id, name: `需求点 ${requirements.length + 1}`,
       }),
     );
-    setActiveRequirementId(created.id);
-    await loadSnapshot();
+    setActiveReqId(r.id);
+    await refresh();
   }
 
-  async function updateRequirement(patch: {
-    name?: string;
-    description?: string;
-    notes?: string;
-    insertPosition?: InsertPosition;
-  }): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_UPDATE', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        patch,
-      }),
-    );
-    await loadSnapshot();
+  async function updateReq(patch: { name?: string; description?: string; notes?: string }): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_UPDATE', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id, patch,
+    }));
+    await refresh();
   }
 
-  async function deleteActiveRequirement(): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    if (!window.confirm(`确认删除需求点「${activeRequirement.name}」吗？`)) {
-      return;
-    }
-
-    if (pickerMode !== 'idle') {
-      await stopPicker();
-    }
-
-    const tabId = await getActiveTabId();
-    const nextRequirement = requirements.find((requirement) => requirement.id !== activeRequirement.id);
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_DELETE', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-      }),
-    );
-    setActiveRequirementId(nextRequirement?.id);
-    setActiveNetworkRecordId(undefined);
+  async function deleteReq(): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    if (!window.confirm(`确认删除「${activeReq.name}」？`)) return;
+    const next = requirements.find((r) => r.id !== activeReq.id);
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_DELETE', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id,
+    }));
+    setActiveReqId(next?.id);
+    setActiveNetId(undefined);
     setSelectedFields([]);
-    await loadSnapshot();
+    await refresh();
   }
 
-  async function removeElementBinding(elementId: string): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_ELEMENT', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        elementId,
-      }),
-    );
-    await loadSnapshot();
+  async function removeElement(elementId: string): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_ELEMENT', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id, elementId,
+    }));
+    await refresh();
   }
 
-  async function startPicker(mode: Exclude<PickerMode, 'idle'>): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'PICKER_START', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        mode,
-      }),
-    );
-    setPickerMode(mode);
-  }
-
-  async function stopPicker(): Promise<void> {
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'PICKER_STOP', {
-        tabId: snapshot?.page.tabId ?? tabId,
-      }),
-    );
-    setPickerMode('idle');
-  }
-
-  async function attachSelectedFields(fields: FieldSelection[]): Promise<void> {
+  async function attachFields(fields: FieldSelection[]): Promise<void> {
     setSelectedFields(fields);
-    if (!snapshot || !activeRequirement || !activeNetworkRecordId) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_ATTACH_FIELDS', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        networkRecordId: activeNetworkRecordId,
-        fields,
-      }),
-    );
-    await loadSnapshot();
+    if (!snapshot || !activeReq || !activeNetId) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_ATTACH_FIELDS', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id,
+      networkRecordId: activeNetId, fields,
+    }));
+    await refresh();
   }
 
-  async function removeDataDependencyBinding(networkRecordId: string): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_DATA_DEPENDENCY', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        networkRecordId,
-      }),
-    );
-    if (activeNetworkRecordId === networkRecordId) {
-      setSelectedFields([]);
-    }
-    await loadSnapshot();
+  async function removeDataDep(nrId: string): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_DATA_DEPENDENCY', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id, networkRecordId: nrId,
+    }));
+    if (activeNetId === nrId) setSelectedFields([]);
+    await refresh();
   }
 
-  async function removeFieldBinding(networkRecordId: string, fieldPath: string): Promise<void> {
-    if (!snapshot || !activeRequirement) {
-      return;
-    }
-
-    const tabId = await getActiveTabId();
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_FIELD', {
-        tabId: snapshot.page.tabId ?? tabId,
-        pageId: snapshot.page.id,
-        requirementId: activeRequirement.id,
-        networkRecordId,
-        fieldPath,
-      }),
-    );
-    await loadSnapshot();
+  async function removeField(nrId: string, fieldPath: string): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(createMessage('sidepanel', 'background', 'REQUIREMENT_REMOVE_FIELD', {
+      tabId: tabId(), pageId: snapshot.page.id, requirementId: activeReq.id,
+      networkRecordId: nrId, fieldPath,
+    }));
+    await refresh();
   }
 
   async function exportProject(): Promise<void> {
-    if (!snapshot) {
-      return;
-    }
-    await sendMessage(
-      createMessage('sidepanel', 'background', 'PROJECT_EXPORT', {
-        projectId: snapshot.project.id,
-      }),
+    if (!snapshot) return;
+    await send(createMessage('sidepanel', 'background', 'PROJECT_EXPORT', { projectId: snapshot.project.id, tabId: snapshot.page.tabId }));
+  }
+
+  // -- Render --------------------------------------------------------------
+
+  if (!snapshot) {
+    return (
+      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 16, color: '#111827', minHeight: '100vh', background: '#f9fafb' }}>
+        <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Offline Capture</h1>
+        <div style={{ marginTop: 16, border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff', padding: 14 }}>
+          <div style={{ fontSize: 13, color: error && !loading ? '#b91c1c' : '#374151' }}>
+            {loading ? (error ?? '正在加载页面上下文...') : error}
+          </div>
+          <button
+            onClick={() => void bootstrap()}
+            disabled={loading}
+            style={{ marginTop: 8, fontSize: 12, opacity: loading ? 0.5 : 1, cursor: loading ? 'default' : 'pointer' }}
+          >
+            {loading ? '加载中...' : '重试'}
+          </button>
+        </div>
+      </main>
     );
   }
 
-  useEffect(() => {
-    if (!activeRequirement || !snapshot) {
-      setSelectedFields([]);
-      return;
-    }
-
-    const dependency = activeRequirement.dataDependencies.find(
-      (item) => item.networkRecordId === activeNetworkRecordId,
-    );
-    setSelectedFields(dependency?.selectedFields ?? []);
-  }, [activeNetworkRecordId, activeRequirement, snapshot]);
-
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        color: '#111827',
-        background: '#f9fafb',
-        minHeight: '100vh',
-        padding: 16,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 20 }}>Offline Capture Assistant</h1>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
-            {snapshot ? `${snapshot.page.title} · ${snapshot.page.url}` : '正在加载页面上下文...'}
+    <main style={{ fontFamily: 'system-ui, sans-serif', color: '#111827', background: '#f9fafb', minHeight: '100vh' }}>
+      {/* Header */}
+      <div style={{ padding: '12px 14px 0', background: '#fff', borderBottom: '1px solid #f3f4f6' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {snapshot.page.title}
+            </div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {snapshot.page.url}
+            </div>
           </div>
+          <button
+            onClick={() => void run(exportProject)}
+            style={{ flexShrink: 0, fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', color: '#374151' }}
+          >
+            导出
+          </button>
         </div>
-        <button onClick={exportProject} disabled={!snapshot}>
-          导出项目
-        </button>
+
+        {/* Requirement tabs */}
+        <RequirementTabs
+          requirements={requirements}
+          activeId={activeReq?.id}
+          onSelect={setActiveReqId}
+          onCreate={() => void run(createReq)}
+        />
       </div>
 
+      {/* Error bar */}
       {error ? (
-        <div style={{ color: '#b91c1c', marginBottom: 16 }}>{error}</div>
+        <div style={{ padding: '6px 14px', fontSize: 12, color: '#b91c1c', background: '#fef2f2', borderBottom: '1px solid #fecaca' }}>
+          {error}
+        </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-        <RequirementList
-          requirements={requirements}
-          activeRequirementId={activeRequirement?.id}
-          onSelect={setActiveRequirementId}
-          onCreate={() => void createRequirement()}
+      {/* Requirement panel */}
+      <div style={{ padding: '0 14px 14px' }}>
+        <RequirementPanel
+          requirement={activeReq}
+          elements={snapshot.page.elements}
+          networkRecords={snapshot.page.networkRecords}
+          activeNetworkRecordId={activeNetId}
+          selectedFields={selectedFields}
+          onFieldSelectionChange={(f) => void run(() => attachFields(f))}
+          onNetworkSelect={setActiveNetId}
+          onUpdate={(p) => void run(() => updateReq(p))}
+          onDelete={() => void run(deleteReq)}
+          onRemoveElement={(id) => void run(() => removeElement(id))}
+          onRemoveDataDependency={(id) => void run(() => removeDataDep(id))}
+          onRemoveField={(nrId, fp) => void run(() => removeField(nrId, fp))}
         />
-
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 14,
-            background: '#fff',
-            padding: 16,
-          }}
-        >
-          <RequirementDetail
-            requirement={activeRequirement}
-            elements={snapshot?.page.elements ?? []}
-            networkRecords={snapshot?.page.networkRecords ?? []}
-            pickerMode={pickerMode}
-            activeNetworkRecordId={activeNetworkRecordId}
-            selectedFields={selectedFields}
-            onFieldSelectionChange={(fields) => void attachSelectedFields(fields)}
-            onNetworkSelect={setActiveNetworkRecordId}
-            onUpdateRequirement={(patch) => void updateRequirement(patch)}
-            onDeleteRequirement={() => void deleteActiveRequirement()}
-            onRemoveElement={(elementId) => void removeElementBinding(elementId)}
-            onRemoveDataDependency={(networkRecordId) => void removeDataDependencyBinding(networkRecordId)}
-            onRemoveField={(networkRecordId, fieldPath) => void removeFieldBinding(networkRecordId, fieldPath)}
-            onPickAnchor={() => void startPicker('anchor')}
-            onPickRelated={() => void startPicker('related')}
-            onStopPicking={() => void stopPicker()}
-          />
-        </div>
       </div>
     </main>
   );

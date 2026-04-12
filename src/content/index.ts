@@ -1,86 +1,136 @@
 import { inspectElement } from './domInspector';
-import { hideOverlay, showOverlay } from './overlay';
+import { hideInsertIndicators, showInsertIndicators } from './insertIndicators';
 import { createMessage, type RuntimeMessage } from '@/shared/messages';
-import type { PickerMode } from '@/shared/types';
+import type { InsertPosition } from '@/shared/types';
 import { emitObservedNetworkRecord, listenForInjectedNetworkEvents } from './pageBridge';
 
-type ActivePickerState = {
-  pageId: string;
-  requirementId: string;
-  mode: Exclude<PickerMode, 'idle'>;
-};
+// ---------------------------------------------------------------------------
+// Context menu: track last right-clicked element
+// ---------------------------------------------------------------------------
 
-let activePicker: ActivePickerState | undefined;
+let lastRightClickedElement: Element | undefined;
 
-function getModeLabel(mode: Exclude<PickerMode, 'idle'>): string {
-  return mode === 'anchor' ? '选择锚点元素' : '选择相关元素';
-}
+document.addEventListener('contextmenu', (event) => {
+  if (event.target instanceof Element) {
+    lastRightClickedElement = event.target;
+  }
+}, true);
 
-function onMouseMove(event: MouseEvent): void {
-  if (!activePicker) {
+// ---------------------------------------------------------------------------
+// Bidirectional highlight: side panel ↔ page element
+// ---------------------------------------------------------------------------
+
+let highlightOverlay: HTMLDivElement | undefined;
+
+function showHighlight(selector: string): void {
+  hideHighlight();
+  const el = document.querySelector(selector);
+  if (!el) {
     return;
   }
 
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    hideOverlay();
-    return;
-  }
-
-  showOverlay(target, getModeLabel(activePicker.mode));
+  const rect = el.getBoundingClientRect();
+  highlightOverlay = document.createElement('div');
+  highlightOverlay.style.cssText = [
+    'position: fixed',
+    `top: ${rect.top}px`,
+    `left: ${rect.left}px`,
+    `width: ${rect.width}px`,
+    `height: ${rect.height}px`,
+    'background: rgba(37, 99, 235, 0.12)',
+    'border: 2px solid #2563eb',
+    'border-radius: 4px',
+    'pointer-events: none',
+    'z-index: 2147483647',
+    'transition: all 150ms ease',
+  ].join(';');
+  document.documentElement.append(highlightOverlay);
 }
 
-async function onClick(event: MouseEvent): Promise<void> {
-  if (!activePicker) {
-    return;
-  }
-
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
-
-  const element = inspectElement(target);
-  const payload = {
-    pageId: activePicker.pageId,
-    requirementId: activePicker.requirementId,
-    mode: activePicker.mode,
-    element,
-  };
-
-  await chrome.runtime.sendMessage(createMessage('content', 'background', 'ELEMENT_PICKED', payload));
-  disablePicker();
+function hideHighlight(): void {
+  highlightOverlay?.remove();
+  highlightOverlay = undefined;
 }
 
-function enablePicker(state: ActivePickerState): void {
-  disablePicker();
-  activePicker = state;
-  document.addEventListener('mousemove', onMouseMove, true);
-  document.addEventListener('click', onClick, true);
-}
-
-function disablePicker(): void {
-  activePicker = undefined;
-  document.removeEventListener('mousemove', onMouseMove, true);
-  document.removeEventListener('click', onClick, true);
-  hideOverlay();
-}
+// ---------------------------------------------------------------------------
+// Message handler
+// ---------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   void (async () => {
     switch (message.type) {
-      case 'PICKER_ACTIVATE':
-        enablePicker(message.payload);
+      case 'CONTENT_PING':
         sendResponse({ ok: true, data: { success: true } });
         return;
-      case 'PICKER_DEACTIVATE':
-        disablePicker();
+
+      // Context menu: inspect the last right-clicked element
+      case 'CONTEXT_MENU_PICK': {
+        if (!lastRightClickedElement || !document.contains(lastRightClickedElement)) {
+          sendResponse({ ok: false, error: '未找到右键点击的元素，请重试。' });
+          return;
+        }
+
+        const element = inspectElement(lastRightClickedElement);
+        await chrome.runtime.sendMessage(
+          createMessage('content', 'background', 'ELEMENT_PICKED', {
+            pageId: message.payload.pageId,
+            requirementId: message.payload.requirementId,
+            mode: message.payload.mode,
+            element,
+          }),
+        );
         sendResponse({ ok: true, data: { success: true } });
         return;
+      }
+
+      // Insert position arrows
+      case 'SHOW_INSERT_INDICATORS': {
+        showInsertIndicators(
+          message.payload.selector,
+          message.payload.currentPosition,
+          async (position: InsertPosition) => {
+            try {
+              await chrome.runtime.sendMessage(
+                createMessage('content', 'background', 'INSERT_POSITION_SELECTED', {
+                  pageId: '',
+                  requirementId: '',
+                  position,
+                }),
+              );
+            } catch {
+              // Background may not be ready.
+            }
+          },
+          async () => {
+            try {
+              await chrome.runtime.sendMessage(
+                createMessage('content', 'background', 'CANCEL_ANCHOR', {}),
+              );
+            } catch {
+              // Background may not be ready.
+            }
+          },
+        );
+        sendResponse({ ok: true, data: { success: true } });
+        return;
+      }
+
+      case 'HIDE_INSERT_INDICATORS':
+        hideInsertIndicators();
+        sendResponse({ ok: true, data: { success: true } });
+        return;
+
+      // Bidirectional highlight
+      case 'HIGHLIGHT_ELEMENT':
+        showHighlight(message.payload.selector);
+        sendResponse({ ok: true, data: { success: true } });
+        return;
+
+      case 'UNHIGHLIGHT_ELEMENT':
+        hideHighlight();
+        sendResponse({ ok: true, data: { success: true } });
+        return;
+
       default:
         sendResponse({ ok: true, data: { success: true } });
     }

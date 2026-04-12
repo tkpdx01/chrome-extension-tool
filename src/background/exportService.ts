@@ -25,10 +25,28 @@ async function captureCurrentPageScreenshot(): Promise<Array<{ name: string; dat
   }
 }
 
-export async function exportProjectBundle(projectId: string): Promise<void> {
+async function capturePageHtml(tabId: number): Promise<string | undefined> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.documentElement.outerHTML,
+    });
+    return results?.[0]?.result ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function exportProjectBundle(projectId: string, tabId?: number): Promise<void> {
   const project = await getProject(projectId);
   const screenshots = await captureCurrentPageScreenshot();
-  const zipBlob = await buildExportZip(projectId, screenshots);
+
+  let pageHtml: string | undefined;
+  if (tabId) {
+    pageHtml = await capturePageHtml(tabId);
+  }
+
+  const zipBlob = await buildExportZip(projectId, screenshots, pageHtml);
   const dataUrl = await blobToDataUrl(zipBlob);
 
   await chrome.downloads.download({

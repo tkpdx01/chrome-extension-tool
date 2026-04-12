@@ -142,3 +142,45 @@ export function parseRawHeaders(rawHeaders: string): Record<string, string> {
     });
   return output;
 }
+
+export function isSupportedPageUrl(rawUrl?: string): boolean {
+  if (!rawUrl) {
+    return false;
+  }
+
+  try {
+    const { protocol } = new URL(rawUrl);
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'file:';
+  } catch {
+    return false;
+  }
+}
+
+export function getSupportedPageError(rawUrl?: string): string {
+  if (!rawUrl) {
+    return '无法识别当前页面地址。请切换到普通网页后重试。';
+  }
+
+  try {
+    const { protocol } = new URL(rawUrl);
+
+    if (protocol === 'file:') {
+      return '当前是本地文件页面。请先在扩展详情页开启“允许访问文件网址”，再刷新页面后重试。';
+    }
+
+    if (
+      protocol === 'chrome:'
+      || protocol === 'edge:'
+      || protocol === 'about:'
+      || protocol === 'chrome-extension:'
+      || protocol === 'extension:'
+      || protocol === 'devtools:'
+    ) {
+      return '当前页面是浏览器受限页面，无法注入扩展脚本。请切换到普通网页后再试。';
+    }
+
+    return `当前页面协议 ${protocol} 不支持元素选择。请切换到普通网页后重试。`;
+  } catch {
+    return '当前页面地址无效，无法注入扩展脚本。';
+  }
+}

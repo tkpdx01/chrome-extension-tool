@@ -18,7 +18,6 @@ function createDefaultState(): StoredState {
     activeProjectId: undefined,
     runtime: {
       activePageIdByTab: {},
-      activePickingByTab: {},
     },
   };
 }
@@ -376,21 +375,6 @@ export async function removeDataDependencyField(
   return requirement;
 }
 
-export async function setActivePicking(
-  tabId: number,
-  picking: RuntimeSession['activePickingByTab'][number],
-): Promise<void> {
-  const state = await getState();
-  state.runtime.activePickingByTab[tabId] = picking;
-  await setState(state);
-}
-
-export async function clearActivePicking(tabId: number): Promise<void> {
-  const state = await getState();
-  delete state.runtime.activePickingByTab[tabId];
-  await setState(state);
-}
-
 export async function getAppSnapshotForTab(tabId: number): Promise<{ project: Project; page: PageCapture; runtime: RuntimeSession }> {
   const state = await getState();
   const project = findProject(state);
@@ -442,66 +426,105 @@ function formatElementMarkdownLines(label: string, element?: ElementSnapshot): s
   ];
 }
 
+function formatNetworkRecord(record: NetworkRecord, index: number): string[] {
+  const lines = [
+    `#### 请求 ${index + 1}: ${record.method} ${record.url}`,
+    `- 状态: ${record.status}`,
+    ...(record.contentType ? [`- Content-Type: ${record.contentType}`] : []),
+  ];
+
+  if (record.requestBodyPreview) {
+    lines.push('- 请求体:', '```', record.requestBodyPreview, '```');
+  }
+
+  if (record.responseJsonSample) {
+    lines.push('- 响应 (JSON):', '```json', JSON.stringify(record.responseJsonSample, null, 2), '```');
+  } else if (record.responsePreview) {
+    lines.push('- 响应:', '```', record.responsePreview, '```');
+  }
+
+  lines.push('');
+  return lines;
+}
+
 export async function buildExportZip(
   projectId: string,
   screenshots: Array<{ name: string; dataUrl: string }> = [],
+  pageHtml?: string,
 ): Promise<Blob> {
   const project = await getProject(projectId);
   const zip = new JSZip();
+
+  // Full structured data
   zip.file(
     'project.json',
-    JSON.stringify(
-      {
-        version: '0.1.0',
-        project,
-        exportedAt: nowIso(),
-      },
-      null,
-      2,
-    ),
+    JSON.stringify({ version: '0.1.0', project, exportedAt: nowIso() }, null, 2),
   );
 
-  const markdown = [
+  // AI context markdown — includes everything
+  const markdown: string[] = [
     `# ${project.name}`,
     '',
-    ...project.pages.flatMap((page) => [
+  ];
+
+  for (const page of project.pages) {
+    markdown.push(
       `## ${page.title}`,
       `- URL: ${page.url}`,
-      `- 需求点数量: ${page.requirements.length}`,
+      `- 采集时间: ${page.capturedAt}`,
       '',
-      ...page.requirements.flatMap((requirement) => {
-        const anchor = page.elements.find((item) => item.id === requirement.anchorElementId);
-        const relatedElements = page.elements.filter((item) => requirement.relatedElementIds.includes(item.id));
-        return [
-          `### ${requirement.name}`,
-          requirement.description || '- 无描述',
-          `- 插入位置: ${requirement.insertPosition ?? '未指定'}`,
-          ...(requirement.notes ? [`- 备注: ${requirement.notes}`] : []),
-          ...formatElementMarkdownLines('锚点元素', anchor),
-          ...(relatedElements.length === 0
-            ? ['- 相关元素: 无']
-            : [
-                '- 相关元素:',
-                ...relatedElements.flatMap((element, index) =>
-                  formatElementMarkdownLines(`相关元素 ${index + 1}`, element),
-                ),
-              ]),
-          ...(requirement.dataDependencies.length === 0
-            ? ['- 数据依赖: 无']
-            : requirement.dataDependencies.flatMap((dependency) => [
-                `- 数据依赖: ${dependency.method} ${dependency.urlPattern}`,
-                ...dependency.selectedFields.map(
-                  (field) =>
-                    `  - 字段: ${field.path}${field.exampleValue ? ` = ${field.exampleValue}` : ''}${field.intendedUsage ? ` (${field.intendedUsage})` : ''}`,
-                ),
-              ])),
-          '',
-        ];
-      }),
-    ]),
-  ].join('\n');
+    );
 
-  zip.folder('prompts')?.file('ai-context.md', markdown);
+    // Requirements
+    if (page.requirements.length > 0) {
+      markdown.push('### 需求点', '');
+      for (const requirement of page.requirements) {
+        const anchor = page.elements.find((e) => e.id === requirement.anchorElementId);
+        const relatedElements = page.elements.filter((e) => requirement.relatedElementIds.includes(e.id));
+
+        markdown.push(`#### ${requirement.name}`);
+        if (requirement.description) markdown.push(requirement.description);
+        if (requirement.insertPosition) markdown.push(`- 插入位置: ${requirement.insertPosition}`);
+        if (requirement.notes) markdown.push(`- 备注: ${requirement.notes}`);
+
+        markdown.push(...formatElementMarkdownLines('锚点元素', anchor));
+        if (relatedElements.length > 0) {
+          markdown.push('- 相关元素:');
+          relatedElements.forEach((el, i) => {
+            markdown.push(...formatElementMarkdownLines(`相关元素 ${i + 1}`, el));
+          });
+        }
+
+        if (requirement.dataDependencies.length > 0) {
+          markdown.push('- 用户标记的关键数据依赖:');
+          for (const dep of requirement.dataDependencies) {
+            markdown.push(`  - ${dep.method} ${dep.urlPattern}`);
+            dep.selectedFields.forEach((f) => {
+              markdown.push(`    - ${f.path}${f.exampleValue ? ` = ${f.exampleValue}` : ''}`);
+            });
+          }
+        }
+        markdown.push('');
+      }
+    }
+
+    // ALL network requests
+    if (page.networkRecords.length > 0) {
+      markdown.push('### 所有网络请求', '');
+      page.networkRecords.forEach((record, index) => {
+        markdown.push(...formatNetworkRecord(record, index));
+      });
+    }
+  }
+
+  zip.folder('prompts')?.file('ai-context.md', markdown.join('\n'));
+
+  // Page HTML source
+  if (pageHtml) {
+    zip.file('page-source.html', pageHtml);
+  }
+
+  // Screenshots
   const screenshotFolder = zip.folder('screenshots');
   screenshots.forEach((screenshot) => {
     const base64 = screenshot.dataUrl.split(',')[1];
@@ -509,5 +532,16 @@ export async function buildExportZip(
       screenshotFolder?.file(screenshot.name, base64, { base64: true });
     }
   });
+
+  // Network requests as separate JSON for AI tools that prefer structured data
+  for (const page of project.pages) {
+    if (page.networkRecords.length > 0) {
+      zip.file(
+        'network-records.json',
+        JSON.stringify(page.networkRecords, null, 2),
+      );
+    }
+  }
+
   return zip.generateAsync({ type: 'blob' });
 }
