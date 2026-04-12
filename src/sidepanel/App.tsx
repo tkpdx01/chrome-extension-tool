@@ -48,9 +48,9 @@ export default function App() {
   const bootstrap = useCallback(async () => {
     setLoading(true);
     setError(undefined);
-    retryRef.current = 0;
 
-    for (let i = 0; i <= RETRY_DELAYS.length; i++) {
+    const maxAttempts = RETRY_DELAYS.length + 1; // 1 initial + N retries
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const s = await requestSnapshot();
         setSnapshot(s);
@@ -58,13 +58,13 @@ export default function App() {
         setLoading(false);
         return;
       } catch (e) {
-        if (i < RETRY_DELAYS.length) {
-          retryRef.current = i + 1;
-          setError(`加载失败，正在第 ${i + 1} 次重试...`);
-          await new Promise((r) => setTimeout(r, RETRY_DELAYS[i]));
-        } else {
+        const isLastAttempt = attempt >= RETRY_DELAYS.length;
+        if (isLastAttempt) {
           setError(toErrorMessage(e));
           setLoading(false);
+        } else {
+          setError(`加载失败，正在第 ${attempt + 1} 次重试...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
         }
       }
     }

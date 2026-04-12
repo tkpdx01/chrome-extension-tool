@@ -8,8 +8,18 @@ export default defineManifest({
     'Capture DOM, requirement points, and network fields from intranet pages for offline Chrome extension development.',
   permissions: ['storage', 'tabs', 'activeTab', 'scripting', 'sidePanel', 'downloads', 'contextMenus'],
   host_permissions: ['<all_urls>'],
+  icons: {
+    '16': 'src/assets/icon-16.png',
+    '48': 'src/assets/icon-48.png',
+    '128': 'src/assets/icon-128.png',
+  },
   action: {
     default_title: 'Open Offline Capture Assistant',
+    default_icon: {
+      '16': 'src/assets/icon-16.png',
+      '48': 'src/assets/icon-48.png',
+      '128': 'src/assets/icon-128.png',
+    },
   },
   background: {
     service_worker: 'src/background/main.ts',
