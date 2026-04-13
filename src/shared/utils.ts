@@ -5,6 +5,14 @@ import {
 } from '@/shared/constants';
 import type { FlatJsonField } from '@/shared/types';
 
+export function getOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
 export function createId(prefix: string): string {
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);

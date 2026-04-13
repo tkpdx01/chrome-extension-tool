@@ -10,7 +10,7 @@ import type {
   RuntimeSession,
   StoredState,
 } from '@/shared/types';
-import { createId, extractUrlPattern, nowIso } from '@/shared/utils';
+import { createId, extractUrlPattern, getOrigin, nowIso } from '@/shared/utils';
 
 function createDefaultState(): StoredState {
   return {
@@ -149,10 +149,29 @@ export async function ensurePageCapture(tabId: number, url: string, title: strin
     state.activeProjectId = project.id;
   }
 
+  const origin = getOrigin(url);
+
+  // 1. Try the page already associated with this tab
   const existingPageId = state.runtime.activePageIdByTab[tabId];
   let page = existingPageId ? project.pages.find((item) => item.id === existingPageId) : undefined;
 
-  if (!page || page.url !== url) {
+  // 2. If tab's page has a different origin, detach it
+  if (page && getOrigin(page.url) !== origin) {
+    page = undefined;
+  }
+
+  // 3. Search for any existing page with the same origin
+  if (!page) {
+    page = project.pages.find((p) => getOrigin(p.url) === origin);
+  }
+
+  if (page) {
+    // Reuse existing page — update URL / title / tabId
+    page.url = url;
+    page.title = title;
+    page.tabId = tabId;
+  } else {
+    // No matching page — create new
     page = {
       id: createId('page'),
       tabId,
@@ -164,10 +183,6 @@ export async function ensurePageCapture(tabId: number, url: string, title: strin
       networkRecords: [],
     };
     project.pages.unshift(page);
-  } else {
-    page.url = url;
-    page.title = title;
-    page.tabId = tabId;
   }
 
   project.updatedAt = nowIso();

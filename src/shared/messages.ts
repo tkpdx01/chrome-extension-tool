@@ -77,10 +77,10 @@ export type RequirementPromoteAnchorMessage = MessageEnvelope<
 // Content script ping
 export type ContentPingMessage = MessageEnvelope<'CONTENT_PING', Record<string, never>>;
 
-// Context menu element capture
+// Context menu element capture (mode chosen by user via on-page picker)
 export type ContextMenuPickMessage = MessageEnvelope<
   'CONTEXT_MENU_PICK',
-  { pageId: string; requirementId: string; mode: 'anchor' | 'related' }
+  { pageId: string; requirementId: string }
 >;
 export type ElementPickedMessage = MessageEnvelope<
   'ELEMENT_PICKED',

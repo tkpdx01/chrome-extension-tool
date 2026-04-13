@@ -1,5 +1,6 @@
 import { inspectElement } from './domInspector';
 import { hideInsertIndicators, showInsertIndicators } from './insertIndicators';
+import { hideModePicker, showModePicker } from './modePicker';
 import { createMessage, type RuntimeMessage } from '@/shared/messages';
 import type { InsertPosition } from '@/shared/types';
 import { emitObservedNetworkRecord, listenForInjectedNetworkEvents } from './pageBridge';
@@ -63,22 +64,29 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
         sendResponse({ ok: true, data: { success: true } });
         return;
 
-      // Context menu: inspect the last right-clicked element
+      // Context menu: inspect the last right-clicked element, then show mode picker
       case 'CONTEXT_MENU_PICK': {
         if (!lastRightClickedElement || !document.contains(lastRightClickedElement)) {
           sendResponse({ ok: false, error: '未找到右键点击的元素，请重试。' });
           return;
         }
 
-        const element = inspectElement(lastRightClickedElement);
-        await chrome.runtime.sendMessage(
-          createMessage('content', 'background', 'ELEMENT_PICKED', {
-            pageId: message.payload.pageId,
-            requirementId: message.payload.requirementId,
-            mode: message.payload.mode,
-            element,
-          }),
-        );
+        const targetEl = lastRightClickedElement;
+        const element = inspectElement(targetEl);
+
+        showModePicker(targetEl, async (mode) => {
+          try {
+            await chrome.runtime.sendMessage(
+              createMessage('content', 'background', 'ELEMENT_PICKED', {
+                pageId: message.payload.pageId,
+                requirementId: message.payload.requirementId,
+                mode,
+                element,
+              }),
+            );
+          } catch { /* Background may not be ready */ }
+        });
+
         sendResponse({ ok: true, data: { success: true } });
         return;
       }

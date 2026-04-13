@@ -122,7 +122,7 @@ export default function RequirementPanel({
 
         {!anchor && related.length === 0 ? (
           <div style={{ fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
-            在页面上右键 → 选择「<strong>采集为锚点元素</strong>」或「<strong>采集为相关元素</strong>」
+            在页面上右键 →「<strong>采集此元素</strong>」→ 选择「<strong>设为锚点</strong>」或「<strong>添加为相关</strong>」
           </div>
         ) : null}
 

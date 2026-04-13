@@ -168,14 +168,8 @@ async function bootstrapForTab(tabId: number): Promise<SnapshotResponse> {
 function setupContextMenus(): void {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: 'capture-anchor',
-      title: '采集为锚点元素',
-      contexts: ['all'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*'],
-    });
-    chrome.contextMenus.create({
-      id: 'capture-related',
-      title: '采集为相关元素',
+      id: 'capture-element',
+      title: '采集此元素',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -183,17 +177,7 @@ function setupContextMenus(): void {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (!tab?.id) return;
-
-  const menuId = info.menuItemId as string;
-  let mode: 'anchor' | 'related';
-  if (menuId === 'capture-anchor') {
-    mode = 'anchor';
-  } else if (menuId === 'capture-related') {
-    mode = 'related';
-  } else {
-    return;
-  }
+  if (!tab?.id || info.menuItemId !== 'capture-element') return;
 
   const tabId = tab.id;
 
@@ -232,7 +216,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         createMessage('background', 'content', 'CONTEXT_MENU_PICK', {
           pageId: ctx.pageId,
           requirementId: ctx.requirementId,
-          mode,
         }),
       );
     } catch {
