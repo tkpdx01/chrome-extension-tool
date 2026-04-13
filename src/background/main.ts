@@ -168,22 +168,14 @@ async function bootstrapForTab(tabId: number): Promise<SnapshotResponse> {
 function setupContextMenus(): void {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: 'capture-parent',
-      title: 'Offline Capture',
-      contexts: ['all'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*'],
-    });
-    chrome.contextMenus.create({
       id: 'capture-anchor',
-      parentId: 'capture-parent',
-      title: '设为锚点元素',
+      title: '采集为锚点元素',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
     chrome.contextMenus.create({
       id: 'capture-related',
-      parentId: 'capture-parent',
-      title: '添加为相关元素',
+      title: '采集为相关元素',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
