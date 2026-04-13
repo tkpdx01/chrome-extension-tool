@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import RequirementTabs from './components/RequirementTabs';
+import PageContextPanel from './components/PageContextPanel';
 import RequirementPanel from './components/RequirementPanel';
 import { createMessage, type SnapshotResponse } from '@/shared/messages';
-import type { AppSnapshot, FieldSelection, RequirementPoint } from '@/shared/types';
+import type { AppSnapshot, FieldSelection, PageInspectionContext, RequirementPoint } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,6 +29,67 @@ async function requestSnapshot(): Promise<AppSnapshot> {
   return r.data;
 }
 
+function collectPageContext(): PageInspectionContext {
+  const html = document.documentElement.outerHTML;
+  const scriptUrls = Array.from(
+    new Set(
+      [
+        ...Array.from(document.scripts).map((script) => script.src).filter(Boolean),
+        ...performance
+          .getEntriesByType('resource')
+          .map((entry) => entry as PerformanceResourceTiming)
+          .filter((entry) => entry.initiatorType === 'script')
+          .map((entry) => entry.name),
+      ],
+    ),
+  );
+  const lowerScriptUrls = scriptUrls.map((url) => url.toLowerCase());
+  const detectedFrameworks = new Set<string>();
+  const pageWindow = window as unknown as Record<string, unknown>;
+
+  if (pageWindow.__NEXT_DATA__ || document.getElementById('__NEXT_DATA__') || document.getElementById('__next') || lowerScriptUrls.some((url) => url.includes('/_next/'))) {
+    detectedFrameworks.add('Next.js');
+  }
+  if (pageWindow.__NUXT__ || document.getElementById('__NUXT') || document.getElementById('__nuxt') || lowerScriptUrls.some((url) => url.includes('nuxt'))) {
+    detectedFrameworks.add('Nuxt');
+  }
+  if (pageWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__ || document.querySelector('[data-reactroot], [data-reactid]') || lowerScriptUrls.some((url) => url.includes('react'))) {
+    detectedFrameworks.add('React');
+  }
+  if (document.querySelector('[data-v-app]') || lowerScriptUrls.some((url) => url.includes('vue'))) {
+    detectedFrameworks.add('Vue');
+  }
+  if (document.querySelector('[ng-version]') || lowerScriptUrls.some((url) => url.includes('angular'))) {
+    detectedFrameworks.add('Angular');
+  }
+  if (lowerScriptUrls.some((url) => url.includes('sveltekit'))) {
+    detectedFrameworks.add('SvelteKit');
+  }
+  if (lowerScriptUrls.some((url) => url.includes('svelte'))) {
+    detectedFrameworks.add('Svelte');
+  }
+  if (pageWindow.jQuery || lowerScriptUrls.some((url) => url.includes('jquery'))) {
+    detectedFrameworks.add('jQuery');
+  }
+  if (lowerScriptUrls.some((url) => url.includes('tailwind'))) {
+    detectedFrameworks.add('Tailwind CSS');
+  }
+  if (lowerScriptUrls.some((url) => url.includes('bootstrap'))) {
+    detectedFrameworks.add('Bootstrap');
+  }
+
+  return {
+    url: location.href,
+    title: document.title,
+    htmlSize: html.length,
+    htmlPreview: html.slice(0, 6000),
+    scriptUrls: scriptUrls.slice(0, 40),
+    inlineScriptCount: Array.from(document.scripts).filter((script) => !script.src).length,
+    detectedFrameworks: Array.from(detectedFrameworks),
+    collectedAt: new Date().toISOString(),
+  };
+}
+
 const RETRY_DELAYS = [500, 1500, 3000];
 
 // ---------------------------------------------------------------------------
@@ -39,9 +101,33 @@ export default function App() {
   const [activeReqId, setActiveReqId] = useState<string | undefined>();
   const [activeNetId, setActiveNetId] = useState<string | undefined>();
   const [selectedFields, setSelectedFields] = useState<FieldSelection[]>([]);
+  const [pageContext, setPageContext] = useState<PageInspectionContext | undefined>();
+  const [pageContextLoading, setPageContextLoading] = useState(false);
+  const [pageContextError, setPageContextError] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
-  const retryRef = useRef(0);
+
+  const loadPageContext = useCallback(async (tabId?: number) => {
+    if (!tabId) {
+      setPageContext(undefined);
+      setPageContextError(undefined);
+      return;
+    }
+
+    setPageContextLoading(true);
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: collectPageContext,
+      });
+      setPageContext(results[0]?.result);
+      setPageContextError(undefined);
+    } catch (e) {
+      setPageContextError(toErrorMessage(e));
+    } finally {
+      setPageContextLoading(false);
+    }
+  }, []);
 
   // -- Bootstrap -----------------------------------------------------------
 
@@ -91,6 +177,10 @@ export default function App() {
   useEffect(() => {
     if (activeReq && activeReq.id !== activeReqId) setActiveReqId(activeReq.id);
   }, [activeReq, activeReqId]);
+
+  useEffect(() => {
+    void loadPageContext(snapshot?.page.tabId);
+  }, [loadPageContext, snapshot?.page.tabId, snapshot?.page.url]);
 
   // Report active context to background
   useEffect(() => {
@@ -149,6 +239,28 @@ export default function App() {
     );
     setActiveReqId(r.id);
     await refresh();
+  }
+
+  async function startCaptureMode(mode: 'anchor' | 'related'): Promise<void> {
+    if (!snapshot || !activeReq) return;
+    await send(
+      createMessage('sidepanel', 'background', 'START_CAPTURE_MODE', {
+        tabId: tabId(),
+        pageId: snapshot.page.id,
+        requirementId: activeReq.id,
+        requirementName: activeReq.name,
+        mode,
+      }),
+    );
+  }
+
+  async function stopCaptureMode(): Promise<void> {
+    if (!snapshot) return;
+    await send(
+      createMessage('sidepanel', 'background', 'STOP_CAPTURE_MODE', {
+        tabId: tabId(),
+      }),
+    );
   }
 
   async function updateReq(patch: { name?: string; description?: string; notes?: string }): Promise<void> {
@@ -282,6 +394,13 @@ export default function App() {
 
       {/* Requirement panel */}
       <div style={{ padding: '0 14px 14px' }}>
+        <PageContextPanel
+          context={pageContext}
+          loading={pageContextLoading}
+          error={pageContextError}
+          networkCount={snapshot.page.networkRecords.length}
+          onRefresh={() => void loadPageContext(snapshot.page.tabId)}
+        />
         <RequirementPanel
           requirement={activeReq}
           elements={snapshot.page.elements}
@@ -296,6 +415,9 @@ export default function App() {
           onRemoveDataDependency={(id) => void run(() => removeDataDep(id))}
           onRemoveField={(nrId, fp) => void run(() => removeField(nrId, fp))}
           onPromoteToAnchor={(id) => void run(() => promoteToAnchor(id))}
+          onStartPickAnchor={() => void run(() => startCaptureMode('anchor'))}
+          onStartPickRelated={() => void run(() => startCaptureMode('related'))}
+          onStopPicking={() => void run(stopCaptureMode)}
         />
       </div>
     </main>

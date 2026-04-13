@@ -169,7 +169,7 @@ function setupContextMenus(): void {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'capture-element',
-      title: '采集此元素',
+      title: '启动页面采集模式',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -195,27 +195,19 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         // May not be supported in older browsers.
       }
 
-      let ctx = activeContextByTab[tabId];
-      if (!ctx) {
-        // Auto-create requirement if none active
-        const snapshot = await getAppSnapshotForTab(tabId).catch(() => undefined);
-        if (!snapshot) return;
-
-        const req = await createRequirement(
-          snapshot.page.id,
-          `需求点 ${snapshot.page.requirements.length + 1}`,
-        );
-        ctx = { pageId: snapshot.page.id, requirementId: req.id };
-        activeContextByTab[tabId] = ctx;
-        await sendStateChanged();
-      }
-
+      const ctx = activeContextByTab[tabId];
+      if (!ctx) return;
+      const snapshot = await getAppSnapshotForTab(tabId).catch(() => undefined);
+      const requirement = snapshot?.page.requirements.find((item) => item.id === ctx.requirementId);
+      if (!snapshot || !requirement) return;
       await ensureContentScriptReady(tabId, tab.url);
       await chrome.tabs.sendMessage(
         tabId,
-        createMessage('background', 'content', 'CONTEXT_MENU_PICK', {
+        createMessage('background', 'content', 'START_CAPTURE_MODE', {
           pageId: ctx.pageId,
           requirementId: ctx.requirementId,
+          requirementName: requirement.name,
+          mode: 'related',
         }),
       );
     } catch {
@@ -324,6 +316,41 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
             void showInsertIndicatorsForAnchor(message.payload.tabId, message.payload.pageId, message.payload.requirementId);
           }
           sendResponse({ ok: true, data: req });
+          return;
+        }
+
+        case 'START_CAPTURE_MODE': {
+          const tabId = await resolveActiveTabId(message.payload.tabId);
+          const tab = await chrome.tabs.get(tabId);
+          activeContextByTab[tabId] = {
+            pageId: message.payload.pageId,
+            requirementId: message.payload.requirementId,
+          };
+          await ensureContentScriptReady(tabId, tab.url);
+          await chrome.tabs.sendMessage(
+            tabId,
+            createMessage('background', 'content', 'START_CAPTURE_MODE', {
+              pageId: message.payload.pageId,
+              requirementId: message.payload.requirementId,
+              requirementName: message.payload.requirementName,
+              mode: message.payload.mode,
+            }),
+          );
+          sendResponse({ ok: true, data: { success: true } });
+          return;
+        }
+
+        case 'STOP_CAPTURE_MODE': {
+          const tabId = await resolveActiveTabId(message.payload.tabId);
+          try {
+            await chrome.tabs.sendMessage(
+              tabId,
+              createMessage('background', 'content', 'STOP_CAPTURE_MODE', {}),
+            );
+          } catch {
+            // Content script may not be ready.
+          }
+          sendResponse({ ok: true, data: { success: true } });
           return;
         }
 

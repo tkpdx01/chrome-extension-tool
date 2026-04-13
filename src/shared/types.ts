@@ -116,6 +116,17 @@ export type AppSnapshot = {
   runtime: RuntimeSession;
 };
 
+export type PageInspectionContext = {
+  url: string;
+  title: string;
+  htmlSize: number;
+  htmlPreview: string;
+  scriptUrls: string[];
+  inlineScriptCount: number;
+  detectedFrameworks: string[];
+  collectedAt: string;
+};
+
 export type ExportBundle = {
   version: '0.1.0';
   project: Project;

@@ -20,6 +20,17 @@ export function createId(prefix: string): string {
   return `${prefix}_${hex}`;
 }
 
+export function createStableId(prefix: string, seed: string): string {
+  let hash = 2166136261;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `${prefix}_${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }

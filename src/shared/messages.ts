@@ -74,6 +74,18 @@ export type RequirementPromoteAnchorMessage = MessageEnvelope<
   { tabId: number; pageId: string; requirementId: string; elementId: string }
 >;
 
+export type StartCaptureModeMessage = MessageEnvelope<
+  'START_CAPTURE_MODE',
+  {
+    tabId?: number;
+    pageId: string;
+    requirementId: string;
+    requirementName: string;
+    mode: 'anchor' | 'related';
+  }
+>;
+export type StopCaptureModeMessage = MessageEnvelope<'STOP_CAPTURE_MODE', { tabId?: number }>;
+
 // Content script ping
 export type ContentPingMessage = MessageEnvelope<'CONTENT_PING', Record<string, never>>;
 
@@ -127,6 +139,8 @@ export type RuntimeMessage =
   | RequirementRemoveDataDependencyMessage
   | RequirementRemoveFieldMessage
   | RequirementPromoteAnchorMessage
+  | StartCaptureModeMessage
+  | StopCaptureModeMessage
   | ContentPingMessage
   | ContextMenuPickMessage
   | ElementPickedMessage

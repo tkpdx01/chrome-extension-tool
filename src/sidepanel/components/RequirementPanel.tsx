@@ -23,6 +23,9 @@ type RequirementPanelProps = {
   onRemoveDataDependency: (networkRecordId: string) => void;
   onRemoveField: (networkRecordId: string, fieldPath: string) => void;
   onPromoteToAnchor: (elementId: string) => void;
+  onStartPickAnchor: () => void;
+  onStartPickRelated: () => void;
+  onStopPicking: () => void;
 };
 
 function SectionHeader({ title, count }: { title: string; count?: number }) {
@@ -52,6 +55,9 @@ export default function RequirementPanel({
   onRemoveDataDependency,
   onRemoveField,
   onPromoteToAnchor,
+  onStartPickAnchor,
+  onStartPickRelated,
+  onStopPicking,
 }: RequirementPanelProps) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -69,7 +75,7 @@ export default function RequirementPanel({
   if (!requirement) {
     return (
       <div style={{ padding: '24px 0', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-        点击「+ 新建」创建需求点，然后右键页面元素采集
+        先创建需求点，再用页面采集模式选择锚点和相关元素
       </div>
     );
   }
@@ -118,11 +124,33 @@ export default function RequirementPanel({
 
       {/* Elements */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>元素</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>元素</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button
+              onClick={onStartPickAnchor}
+              style={{ fontSize: 11, fontWeight: 600, color: '#111827', background: '#fff', border: '1px solid #d1d5db', borderRadius: 999, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              选锚点
+            </button>
+            <button
+              onClick={onStartPickRelated}
+              style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: '#111827', border: '1px solid #111827', borderRadius: 999, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              加相关
+            </button>
+            <button
+              onClick={onStopPicking}
+              style={{ fontSize: 11, color: '#b91c1c', background: '#fff', border: '1px solid #fecaca', borderRadius: 999, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              结束采集
+            </button>
+          </div>
+        </div>
 
         {!anchor && related.length === 0 ? (
-          <div style={{ fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
-            在页面上右键 →「<strong>采集此元素</strong>」→ 选择「<strong>设为锚点</strong>」或「<strong>添加为相关</strong>」
+          <div style={{ fontSize: 12, color: '#6b7280', background: '#f9fafb', borderRadius: 12, padding: '10px 12px', lineHeight: 1.7, border: '1px solid #f3f4f6' }}>
+            点击「选锚点」或「加相关」后，页面会进入可见即可得的采集模式。
           </div>
         ) : null}
 

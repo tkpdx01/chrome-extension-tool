@@ -1,21 +1,8 @@
-import { inspectElement } from './domInspector';
+import { startCaptureMode, stopCaptureMode } from './captureOverlay';
 import { hideInsertIndicators, showInsertIndicators } from './insertIndicators';
-import { hideModePicker, showModePicker } from './modePicker';
 import { createMessage, type RuntimeMessage } from '@/shared/messages';
 import type { InsertPosition } from '@/shared/types';
 import { emitObservedNetworkRecord, listenForInjectedNetworkEvents } from './pageBridge';
-
-// ---------------------------------------------------------------------------
-// Context menu: track last right-clicked element
-// ---------------------------------------------------------------------------
-
-let lastRightClickedElement: Element | undefined;
-
-document.addEventListener('contextmenu', (event) => {
-  if (event.target instanceof Element) {
-    lastRightClickedElement = event.target;
-  }
-}, true);
 
 // ---------------------------------------------------------------------------
 // Bidirectional highlight: side panel ↔ page element
@@ -64,32 +51,21 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
         sendResponse({ ok: true, data: { success: true } });
         return;
 
-      // Context menu: inspect the last right-clicked element, then show mode picker
-      case 'CONTEXT_MENU_PICK': {
-        if (!lastRightClickedElement || !document.contains(lastRightClickedElement)) {
-          sendResponse({ ok: false, error: '未找到右键点击的元素，请重试。' });
-          return;
-        }
-
-        const targetEl = lastRightClickedElement;
-        const element = inspectElement(targetEl);
-
-        showModePicker(targetEl, async (mode) => {
-          try {
-            await chrome.runtime.sendMessage(
-              createMessage('content', 'background', 'ELEMENT_PICKED', {
-                pageId: message.payload.pageId,
-                requirementId: message.payload.requirementId,
-                mode,
-                element,
-              }),
-            );
-          } catch { /* Background may not be ready */ }
+      case 'START_CAPTURE_MODE':
+        hideInsertIndicators();
+        startCaptureMode({
+          pageId: message.payload.pageId,
+          requirementId: message.payload.requirementId,
+          requirementName: message.payload.requirementName,
+          mode: message.payload.mode,
         });
-
         sendResponse({ ok: true, data: { success: true } });
         return;
-      }
+
+      case 'STOP_CAPTURE_MODE':
+        stopCaptureMode();
+        sendResponse({ ok: true, data: { success: true } });
+        return;
 
       // Insert position arrows
       case 'SHOW_INSERT_INDICATORS': {

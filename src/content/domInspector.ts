@@ -1,6 +1,6 @@
 import { MAX_HTML_SNIPPET, MAX_TEXT_LENGTH } from '@/shared/constants';
 import type { ElementSnapshot } from '@/shared/types';
-import { createId, truncateText } from '@/shared/utils';
+import { createStableId, truncateText } from '@/shared/utils';
 import { buildSelectorCandidates } from './selector';
 
 const KEY_STYLE_PROPS = [
@@ -43,14 +43,25 @@ function getComputedStyleSubset(element: Element): Record<string, string> {
 
 export function inspectElement(element: Element): ElementSnapshot {
   const rect = element.getBoundingClientRect();
+  const selectorCandidates = buildSelectorCandidates(element);
+  const primarySelector = selectorCandidates.primaryCss ?? selectorCandidates.css[0] ?? selectorCandidates.xpath ?? element.tagName.toLowerCase();
+  const text = truncateText(element.textContent?.trim(), MAX_TEXT_LENGTH);
+  const signature = [
+    primarySelector,
+    element.tagName.toLowerCase(),
+    element.getAttribute('id') ?? '',
+    element.getAttribute('name') ?? '',
+    text,
+  ].join('|');
+
   return {
-    id: createId('el'),
+    id: createStableId('el', signature),
     tagName: element.tagName.toLowerCase(),
-    text: truncateText(element.textContent?.trim(), MAX_TEXT_LENGTH),
+    text,
     htmlSnippet: truncateText(element.outerHTML, MAX_HTML_SNIPPET),
     attributes: getAttributes(element),
     computedStyle: getComputedStyleSubset(element),
-    selectorCandidates: buildSelectorCandidates(element),
+    selectorCandidates,
     rect: {
       x: rect.x,
       y: rect.y,
