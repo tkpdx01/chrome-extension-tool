@@ -5,7 +5,7 @@
   (async () => {
     const { onExecute } = await import(
       /* @vite-ignore */
-      "./networkHook.ts-ldTaDOQu.js"
+      chrome.runtime.getURL("assets/index.ts-0NLvDljD.js")
     );
     onExecute?.({ perf: { injectTime, loadTime: performance.now() - injectTime } });
   })().catch(console.error);
