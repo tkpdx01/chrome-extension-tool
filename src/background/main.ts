@@ -168,8 +168,22 @@ async function bootstrapForTab(tabId: number): Promise<SnapshotResponse> {
 function setupContextMenus(): void {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: 'capture-element',
-      title: '采集此元素',
+      id: 'capture-parent',
+      title: 'Offline Capture',
+      contexts: ['all'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*'],
+    });
+    chrome.contextMenus.create({
+      id: 'capture-anchor',
+      parentId: 'capture-parent',
+      title: '设为锚点元素',
+      contexts: ['all'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*'],
+    });
+    chrome.contextMenus.create({
+      id: 'capture-related',
+      parentId: 'capture-parent',
+      title: '添加为相关元素',
       contexts: ['all'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -177,12 +191,27 @@ function setupContextMenus(): void {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (!tab?.id || info.menuItemId !== 'capture-element') return;
+  if (!tab?.id) return;
+
+  const menuId = info.menuItemId as string;
+  let mode: 'anchor' | 'related';
+  if (menuId === 'capture-anchor') {
+    mode = 'anchor';
+  } else if (menuId === 'capture-related') {
+    mode = 'related';
+  } else {
+    return;
+  }
 
   const tabId = tab.id;
 
   void (async () => {
     try {
+      // Ensure page capture exists for this tab
+      if (isSupportedPageUrl(tab.url)) {
+        await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+      }
+
       // Auto-open side panel
       try {
         await (chrome.sidePanel as { open?: (opts: { tabId: number }) => Promise<void> }).open?.({ tabId });
@@ -204,13 +233,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         activeContextByTab[tabId] = ctx;
         await sendStateChanged();
       }
-
-      // Auto-determine mode: if no anchor yet → anchor, otherwise → related
-      const state = await getState();
-      const project = state.projects.find((p) => p.id === state.activeProjectId);
-      const page = project?.pages.find((p) => p.id === ctx.pageId);
-      const req = page?.requirements.find((r) => r.id === ctx.requirementId);
-      const mode: 'anchor' | 'related' = req?.anchorElementId ? 'related' : 'anchor';
 
       await ensureContentScriptReady(tabId, tab.url);
       await chrome.tabs.sendMessage(

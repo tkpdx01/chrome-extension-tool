@@ -69,7 +69,7 @@ export default function RequirementPanel({
   if (!requirement) {
     return (
       <div style={{ padding: '24px 0', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-        点击「+ 新建」创建需求点，然后在页面上右键采集元素
+        点击「+ 新建」创建需求点，然后右键页面元素 → Offline Capture 采集
       </div>
     );
   }
@@ -122,7 +122,7 @@ export default function RequirementPanel({
 
         {!anchor && related.length === 0 ? (
           <div style={{ fontSize: 12, color: '#9ca3af', background: '#f9fafb', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
-            右键页面元素 → <strong>Offline Capture</strong> → 选择「设为锚点元素」或「添加为相关元素」
+            在页面上右键 → <strong>Offline Capture</strong> → 选择「<strong>设为锚点元素</strong>」或「<strong>添加为相关元素</strong>」
           </div>
         ) : null}
 
