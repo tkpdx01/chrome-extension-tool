@@ -7,6 +7,7 @@ An MVP Chrome extension for page element capture, requirement point management, 
 - Capture anchor and related page elements
 - Manage requirement points in the side panel
 - Bind response JSON fields from observed network requests
+- Mirror browser network traffic with raw request/response export artifacts
 - Export project data and AI-ready prompt context
 - Generate more stable selector candidates for later script generation
 

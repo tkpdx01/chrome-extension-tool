@@ -3,7 +3,7 @@ import {
   MAX_JSON_KEYS,
   MAX_PREVIEW_CHARS,
 } from '@/shared/constants';
-import type { FlatJsonField } from '@/shared/types';
+import type { FlatJsonField, MirroredBody } from '@/shared/types';
 
 export function getOrigin(url: string): string {
   try {
@@ -51,6 +51,58 @@ export function safeJsonParse(value: string): unknown | undefined {
   }
 }
 
+export function byteSize(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+export function estimateBase64Size(value: string): number {
+  const normalized = value.replace(/\s+/g, '');
+  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+}
+
+export function isLikelyTextContentType(contentType?: string): boolean {
+  if (!contentType) {
+    return false;
+  }
+
+  const normalized = contentType.toLowerCase();
+  return (
+    normalized.startsWith('text/')
+    || normalized.includes('json')
+    || normalized.includes('javascript')
+    || normalized.includes('xml')
+    || normalized.includes('html')
+    || normalized.includes('svg')
+    || normalized.includes('form-urlencoded')
+  );
+}
+
+export function decodeBase64Utf8(value: string): string | undefined {
+  try {
+    const bytes = Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+export function mirroredBodyToText(body?: MirroredBody, contentType?: string): string | undefined {
+  if (!body) {
+    return undefined;
+  }
+
+  if (body.encoding === 'utf8') {
+    return body.body;
+  }
+
+  if (!isLikelyTextContentType(contentType)) {
+    return undefined;
+  }
+
+  return decodeBase64Utf8(body.body);
+}
+
 export function summarizeJson(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) {
     return value;
@@ -95,6 +147,45 @@ export function extractUrlPattern(rawUrl: string): string {
 
 export function sanitizeFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'export';
+}
+
+export function contentTypeToExtension(contentType?: string): string {
+  if (!contentType) {
+    return 'bin';
+  }
+
+  const normalized = contentType.toLowerCase().split(';')[0].trim();
+  const direct = normalized.split('/')[1];
+
+  switch (normalized) {
+    case 'application/json':
+    case 'text/json':
+      return 'json';
+    case 'text/plain':
+      return 'txt';
+    case 'text/html':
+      return 'html';
+    case 'text/css':
+      return 'css';
+    case 'application/javascript':
+    case 'text/javascript':
+      return 'js';
+    case 'application/xml':
+    case 'text/xml':
+      return 'xml';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'application/x-www-form-urlencoded':
+      return 'txt';
+    default:
+      break;
+  }
+
+  if (!direct) {
+    return 'bin';
+  }
+
+  return direct.replace(/[^a-z0-9]+/g, '') || 'bin';
 }
 
 export function maskSensitiveValue(value: string): string {

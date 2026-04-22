@@ -4,6 +4,6 @@ export const DEFAULT_PROJECT_NAME = 'Offline Capture Project';
 export const MAX_TEXT_LENGTH = 400;
 export const MAX_HTML_SNIPPET = 2000;
 export const MAX_PREVIEW_CHARS = 4000;
-export const MAX_NETWORK_RECORDS = 200;
+export const MAX_NETWORK_RECORDS = 1000;
 export const MAX_JSON_DEPTH = 4;
 export const MAX_JSON_KEYS = 20;

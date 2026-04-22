@@ -6,6 +6,24 @@ type NetworkRequestListProps = {
   onSelect: (recordId: string) => void;
 };
 
+function formatBytes(value?: number): string | undefined {
+  if (!value || Number.isNaN(value)) {
+    return undefined;
+  }
+
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  const kb = value / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+  }
+
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+}
+
 function ResponsePreview({ record }: { record: NetworkRecord }) {
   const preview = record.responseJsonSample
     ? JSON.stringify(record.responseJsonSample, null, 2)
@@ -69,6 +87,12 @@ export default function NetworkRequestList({ records, activeRecordId, onSelect }
                     {record.contentType.split(';')[0]}
                   </span>
                 ) : null}
+              </div>
+              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {record.resourceType ? <span>{record.resourceType}</span> : null}
+                {record.responseBodySize ? <span>响应 {formatBytes(record.responseBodySize)}</span> : null}
+                {record.captureSource === 'debugger' ? <span>mirror</span> : null}
+                {record.failedReason ? <span style={{ color: '#b91c1c' }}>{record.failedReason}</span> : null}
               </div>
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, wordBreak: 'break-all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {record.url}

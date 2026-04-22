@@ -1,5 +1,5 @@
 import { BRIDGE_SOURCE } from '@/shared/constants';
-import { createId, parseRawHeaders, safeJsonParse, summarizeJson, toPlainHeaders, truncateText } from '@/shared/utils';
+import { byteSize, createId, parseRawHeaders, safeJsonParse, summarizeJson, toPlainHeaders, truncateText } from '@/shared/utils';
 import type { NetworkRecord } from '@/shared/types';
 
 /** Only record HTTP(S) requests — skip chrome-extension://, edge://, etc. */
@@ -23,6 +23,24 @@ function emitRecord(record: NetworkRecord): void {
   );
 }
 
+function normalizeInitHeaders(headers?: HeadersInit): Record<string, string> | undefined {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (headers instanceof Headers) {
+    return toPlainHeaders(headers);
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers.map(([key, value]) => [key.toLowerCase(), String(value)]));
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), String(value)]),
+  );
+}
+
 async function buildRecordFromFetch(
   request: RequestInfo | URL,
   init: RequestInit | undefined,
@@ -42,15 +60,17 @@ async function buildRecordFromFetch(
       init?.method ?? (request instanceof Request ? request.method : undefined) ?? 'GET',
     status: response.status,
     contentType,
-    requestHeaders:
-      init?.headers instanceof Headers
-        ? toPlainHeaders(init.headers)
-        : undefined,
+    requestHeaders: normalizeInitHeaders(init?.headers),
     requestBodyPreview:
       typeof init?.body === 'string' ? truncateText(init.body) : undefined,
+    requestBodySize:
+      typeof init?.body === 'string' ? byteSize(init.body) : undefined,
     responseHeaders: toPlainHeaders(response.headers),
     responsePreview: truncateText(responseText),
+    responseBodySize: responseText ? byteSize(responseText) : undefined,
     responseJsonSample: parsedJson ? summarizeJson(parsedJson) : undefined,
+    captureSource: 'injected',
+    mirrorStored: false,
     timestamp: Date.now(),
   };
 }
@@ -113,9 +133,13 @@ XMLHttpRequest.prototype.send = function send(body?: Document | XMLHttpRequestBo
           contentType,
           requestHeaders: undefined,
           requestBodyPreview,
+          requestBodySize: requestBodyPreview ? byteSize(requestBodyPreview) : undefined,
           responseHeaders: parseRawHeaders(this.getAllResponseHeaders()),
           responsePreview: truncateText(responseText),
+          responseBodySize: responseText ? byteSize(responseText) : undefined,
           responseJsonSample: parsedJson ? summarizeJson(parsedJson) : undefined,
+          captureSource: 'injected',
+          mirrorStored: false,
           timestamp: Date.now(),
         });
       } catch {

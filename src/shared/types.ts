@@ -15,6 +15,14 @@ export type SelectorCandidates = {
   xpath?: string;
 };
 
+export type NetworkBodyEncoding = 'utf8' | 'base64';
+
+export type MirroredBody = {
+  encoding: NetworkBodyEncoding;
+  body: string;
+  size: number;
+};
+
 export type ElementRect = {
   x: number;
   y: number;
@@ -46,13 +54,58 @@ export type NetworkRecord = {
   url: string;
   method: string;
   status: number;
+  statusText?: string;
+  resourceType?: string;
+  protocol?: string;
   contentType?: string;
   requestHeaders?: Record<string, string>;
   requestBodyPreview?: string;
+  requestBodySize?: number;
   responseHeaders?: Record<string, string>;
   responsePreview?: string;
+  responseBodySize?: number;
   responseJsonSample?: unknown;
+  initiatorType?: string;
+  fromDiskCache?: boolean;
+  fromServiceWorker?: boolean;
+  failedReason?: string;
+  captureSource?: 'debugger' | 'injected';
+  mirrorStored?: boolean;
   timestamp: number;
+};
+
+export type NetworkMirrorPayload = {
+  id: Id;
+  pageId: Id;
+  tabId?: number;
+  requestId: string;
+  sequence: number;
+  capturedAt: number;
+  url: string;
+  method: string;
+  resourceType?: string;
+  initiatorType?: string;
+  requestHeaders?: Record<string, string>;
+  requestBody?: MirroredBody;
+  response?: {
+    status: number;
+    statusText?: string;
+    protocol?: string;
+    contentType?: string;
+    headers?: Record<string, string>;
+    body?: MirroredBody;
+    bodyUnavailable?: boolean;
+    fromDiskCache?: boolean;
+    fromServiceWorker?: boolean;
+    encodedDataLength?: number;
+  };
+  failed?: {
+    errorText: string;
+    canceled?: boolean;
+    blockedReason?: string;
+    corsErrorStatus?: string;
+  };
+  captureSource: 'debugger' | 'injected';
 };
 
 export type FieldSelection = {

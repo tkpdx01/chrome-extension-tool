@@ -8,6 +8,7 @@ import {
 import type { InsertPosition } from '@/shared/types';
 import { getSupportedPageError, isSupportedPageUrl } from '@/shared/utils';
 import { exportProjectBundle } from './exportService';
+import { ensureMirrorCapture, isMirrorCaptureActive, stopMirrorCapture } from './networkMirror';
 import {
   appendNetworkRecord,
   attachDataDependency,
@@ -154,6 +155,7 @@ async function bootstrapForTab(tabId: number): Promise<SnapshotResponse> {
   const page = await ensurePageCapture(tabId, tab.url ?? '', tab.title ?? 'Untitled');
 
   if (isSupportedPageUrl(tab.url)) {
+    void ensureMirrorCapture(tabId, page.id).catch(() => undefined);
     void ensureContentScriptReady(tabId, tab.url).catch(() => undefined);
   }
 
@@ -185,7 +187,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     try {
       // Ensure page capture exists for this tab
       if (isSupportedPageUrl(tab.url)) {
-        await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+        const page = await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+        void ensureMirrorCapture(tabId, page.id).catch(() => undefined);
       }
 
       // Auto-open side panel
@@ -235,7 +238,8 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
     try {
       const tab = await chrome.tabs.get(tabId);
       if (isSupportedPageUrl(tab.url)) {
-        await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+        const page = await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+        void ensureMirrorCapture(tabId, page.id).catch(() => undefined);
         void ensureContentScriptReady(tabId, tab.url).catch(() => undefined);
       }
     } catch { /* Tab closed */ }
@@ -244,12 +248,15 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (tabId !== lastActiveTabId || changeInfo.status !== 'complete') return;
+  if (tabId !== lastActiveTabId || (changeInfo.status !== 'loading' && changeInfo.status !== 'complete')) return;
   void (async () => {
     try {
       if (isSupportedPageUrl(tab.url)) {
-        await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
-        void ensureContentScriptReady(tabId, tab.url).catch(() => undefined);
+        const page = await ensurePageCapture(tabId, tab.url!, tab.title ?? 'Untitled');
+        void ensureMirrorCapture(tabId, page.id).catch(() => undefined);
+        if (changeInfo.status === 'complete') {
+          void ensureContentScriptReady(tabId, tab.url).catch(() => undefined);
+        }
       }
     } catch { /* Tab closed */ }
     await sendStateChanged();
@@ -259,6 +266,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Clean up context when tabs are closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   delete activeContextByTab[tabId];
+  void stopMirrorCapture(tabId).catch(() => undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -410,6 +418,10 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         case 'NETWORK_OBSERVED': {
           const tabId = sender.tab?.id;
           if (!tabId) { sendResponse({ ok: true, data: { success: true } }); return; }
+          if (isMirrorCaptureActive(tabId)) {
+            sendResponse({ ok: true, data: { success: true } });
+            return;
+          }
           const snapshot = await getAppSnapshotForTab(tabId).catch(() => undefined);
           if (!snapshot) { sendResponse({ ok: true, data: { success: true } }); return; }
           await appendNetworkRecord(snapshot.page.id, message.payload.record);

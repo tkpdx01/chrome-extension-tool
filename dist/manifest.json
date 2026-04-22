@@ -10,7 +10,9 @@
     "scripting",
     "sidePanel",
     "downloads",
-    "contextMenus"
+    "contextMenus",
+    "pageCapture",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -38,7 +40,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/index.ts-loader-B1VZfoOe.js"
+        "assets/index.ts-loader-DnAJXA05.js"
       ],
       "matches": [
         "<all_urls>"
@@ -47,7 +49,7 @@
     },
     {
       "js": [
-        "assets/networkHook.ts-loader-BtR6dDA4.js"
+        "assets/networkHook.ts-loader-BuozscHn.js"
       ],
       "matches": [
         "<all_urls>"
@@ -62,10 +64,10 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/utils-CZAMFRvx.js",
+        "assets/utils-DRXs490p.js",
         "assets/messages-NWlbb5e5.js",
-        "assets/index.ts-DfYEJ-Zx.js",
-        "assets/networkHook.ts-B5FdqE2W.js"
+        "assets/index.ts-iSE8xIDs.js",
+        "assets/networkHook.ts-Px3tASjp.js"
       ],
       "use_dynamic_url": false
     }

@@ -6,7 +6,7 @@ export default defineManifest({
   version: '0.1.0',
   description:
     'Capture DOM, requirement points, and network fields from intranet pages for offline Chrome extension development.',
-  permissions: ['storage', 'tabs', 'activeTab', 'scripting', 'sidePanel', 'downloads', 'contextMenus'],
+  permissions: ['storage', 'tabs', 'activeTab', 'scripting', 'sidePanel', 'downloads', 'contextMenus', 'pageCapture', 'debugger'],
   host_permissions: ['<all_urls>'],
   icons: {
     '16': 'src/assets/icon-16.png',

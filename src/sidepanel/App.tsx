@@ -372,7 +372,7 @@ export default function App() {
             onClick={() => void run(exportProject)}
             style={{ flexShrink: 0, fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', color: '#374151' }}
           >
-            导出
+            导出快照
           </button>
         </div>
 
